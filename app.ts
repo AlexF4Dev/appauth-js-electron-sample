@@ -15,7 +15,7 @@
  */
 
 import {ipcRenderer} from 'electron';
-import {AuthFlow, AuthStateEmitter} from './flow';
+import {AuthFlow, AuthStateEmitter, auth_config} from './flow';
 import {log} from './logger';
 
 const SIGN_IN = 'Sign-In';
@@ -69,7 +69,7 @@ export class App {
     this.fetchUserInfo.addEventListener('click', () => {
       this.authFlow.performWithFreshTokens().then(accessToken => {
         let request =
-            new Request('https://www.googleapis.com/oauth2/v3/userinfo', {
+            new Request(auth_config.identity_server + '/me', {
               headers: new Headers({'Authorization': `Bearer ${accessToken}`}),
               method: 'GET',
               cache: 'no-cache'

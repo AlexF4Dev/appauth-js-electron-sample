@@ -14,7 +14,7 @@
  * the License.
  */
 
-import { AuthorizationRequest } from "@openid/appauth/built/authorization_request";
+import { AuthorizationRequest, AuthorizationRequestJson } from "@openid/appauth/built/authorization_request";
 import {
   AuthorizationNotifier,
   AuthorizationRequestHandler,
@@ -43,6 +43,7 @@ import EventEmitter = require("events");
 
 import { log } from "./logger";
 import { StringMap } from "@openid/appauth/built/types";
+import { DefaultCrypto } from "@openid/appauth/built/crypto_utils";
 
 export class AuthStateEmitter extends EventEmitter {
   static ON_TOKEN_RESPONSE = "on_token_response";
@@ -52,15 +53,18 @@ export class AuthStateEmitter extends EventEmitter {
 const requestor = new NodeRequestor();
 
 /* an example open id connect provider */
-const openIdConnectUrl = "https://accounts.google.com";
+
 
 const PORT = 8000;
 
-/* example client configuration */
-const clientId =
-  "511828570984-7nmej36h9j2tebiqmpqh835naet4vci4.apps.googleusercontent.com";
-const redirectUri = `http://127.0.0.1:${PORT}`;
-const scope = "openid";
+export const auth_config =  {
+  identity_client: 'ghzGwf3g0qK4ZN_eAtXGR',
+  identity_server: 'https://a-ci.labshare.org/_api/auth/ls',
+  redirect_url: `http://localhost:${PORT}`,
+  end_session_redirect_url: 'http://localhost:8000',
+  scopes: 'openid profile offline_access',
+  usePkce: true
+}
 
 export class AuthFlow {
   private notifier: AuthorizationNotifier;
@@ -103,7 +107,7 @@ export class AuthFlow {
 
   fetchServiceConfiguration(): Promise<void> {
     return AuthorizationServiceConfiguration.fetchFromIssuer(
-      openIdConnectUrl,
+      auth_config.identity_server,
       requestor
     ).then(response => {
       log("Fetched service configuration", response);
@@ -111,7 +115,29 @@ export class AuthFlow {
     });
   }
 
-  makeAuthorizationRequest(username?: string) {
+  async makeAuthorizationRequestJson(authConfig: any, loginHint = ''){
+    let requestJson : AuthorizationRequestJson = {
+        response_type: authConfig.response_type || AuthorizationRequest.RESPONSE_TYPE_CODE,
+        client_id: authConfig.identity_client,
+        redirect_uri: authConfig.redirect_url,
+        scope: authConfig.scopes,
+        extras: authConfig.auth_extras
+    }
+
+    if(loginHint){
+        requestJson.extras = requestJson.extras || {};
+        requestJson.extras['login_hint'] = loginHint;
+    }
+    
+    let request = new AuthorizationRequest(requestJson, new DefaultCrypto(), authConfig.usePkce);
+
+    if(authConfig.usePkce)
+        await request.setupCodeVerifier();
+
+    return request;
+}
+
+  async makeAuthorizationRequest(username?: string) {
     if (!this.configuration) {
       log("Unknown service configuration");
       return;
@@ -123,14 +149,7 @@ export class AuthFlow {
     }
 
     // create a request
-    const request = new AuthorizationRequest({
-      client_id: clientId,
-      redirect_uri: redirectUri,
-      scope: scope,
-      response_type: AuthorizationRequest.RESPONSE_TYPE_CODE,
-      state: undefined,
-      extras: extras
-    }, new NodeCrypto());
+    const request = await this.makeAuthorizationRequestJson(auth_config);
 
     log("Making authorization request ", this.configuration, request);
 
@@ -154,8 +173,8 @@ export class AuthFlow {
 
     // use the code to make the token request.
     let request = new TokenRequest({
-      client_id: clientId,
-      redirect_uri: redirectUri,
+      client_id: auth_config.identity_client,
+      redirect_uri: auth_config.redirect_url,
       grant_type: GRANT_TYPE_AUTHORIZATION_CODE,
       code: code,
       refresh_token: undefined,
@@ -196,8 +215,8 @@ export class AuthFlow {
       return Promise.resolve(this.accessTokenResponse.accessToken);
     }
     let request = new TokenRequest({
-      client_id: clientId,
-      redirect_uri: redirectUri,
+      client_id: auth_config.identity_client,
+      redirect_uri: auth_config.redirect_url,
       grant_type: GRANT_TYPE_REFRESH_TOKEN,
       code: undefined,
       refresh_token: this.refreshToken,
